@@ -35,7 +35,7 @@ public class MantisPluginTest {
   @Test
   public void testRegisterPlugin() {
      SonarPlugin plugin = new MantisPlugin();
-     assertThat(plugin.getExtensions().size(), equalTo(4));
+     assertThat(plugin.getExtensions().size(), equalTo(5));
   }
 
 }

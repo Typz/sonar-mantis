@@ -29,6 +29,7 @@ import static org.mockito.Mockito.when;
 import java.math.BigInteger;
 import java.rmi.RemoteException;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
 
 import org.junit.Before;
@@ -38,8 +39,11 @@ import org.sonar.api.batch.SensorContext;
 import org.sonar.api.config.Settings;
 import org.sonar.api.measures.Measure;
 import org.sonar.api.measures.Metric;
+import org.sonar.api.profiles.RulesProfile;
+import org.sonar.api.profiles.RulesProfileTest;
 import org.sonar.api.resources.Project;
 import org.sonar.api.resources.Resource;
+import org.sonar.api.rules.Violation;
 import org.sonar.plugins.mantis.soap.MantisSoapService;
 
 import biz.futureware.mantis.rpc.soap.client.AccountData;
@@ -81,6 +85,8 @@ public class MantisSensorTest {
             issue.setPriority(new ObjectRef(BigInteger.valueOf(i % 5), priorities[i % 5]));
             issue.setStatus(new ObjectRef(BigInteger.valueOf(i % 8), status[i % 8]));
             issue.setHandler(new AccountData(BigInteger.valueOf(i % 20), users[i % 20], users[i % 20], users[i % 20] + "@gmail.com"));
+            issue.setDate_submitted(Calendar.getInstance());
+            issue.setLast_updated(Calendar.getInstance());
             issues.add(issue);
           }
           FilterData filter = new FilterData(BigInteger.ONE, null, BigInteger.ONE, true, "current-version", "", "");
@@ -102,7 +108,8 @@ public class MantisSensorTest {
         .setProperty(MantisPlugin.PASSWORD_PROPERTY, "pwd")
         .setProperty(MantisPlugin.PROJECTNAME_PROPERTY, "myproject")
         .setProperty(MantisPlugin.FILTER_PROPERTY, "current-version");
-    sensor = new MantisSensor(settings) {
+    RulesProfile rulesProfile = RulesProfile.create("test profile", "c++");
+    sensor = new MantisSensor(settings, rulesProfile) {
 
       protected MantisSoapService createMantisSoapService() throws RemoteException {
         return service;
@@ -129,6 +136,7 @@ public class MantisSensorTest {
 
     @SuppressWarnings("rawtypes")
     Multimap<Resource, Measure> measures;
+    Multimap<Resource, Violation> violations;
 
     @SuppressWarnings("rawtypes")
     private Multimap<Resource, Measure> getMeasures() {
@@ -136,6 +144,22 @@ public class MantisSensorTest {
         measures = ArrayListMultimap.create();
       }
       return measures;
+    }
+
+    private Multimap<Resource, Violation> getViolations() {
+      if (violations == null) {
+        violations = ArrayListMultimap.create();
+      }
+      return violations;
+    }
+
+    public boolean index(Resource r)
+    {
+      return true;
+    }
+
+    public void saveViolation(org.sonar.api.rules.Violation violation) {
+      getViolations().put(violation.getResource(), violation);
     }
 
     public Measure saveMeasure(@SuppressWarnings("rawtypes") Resource resource, Measure measure) {

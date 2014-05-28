@@ -48,6 +48,7 @@ public class MantisPlugin extends SonarPlugin {
 
 	public List<Class<? extends Extension>> getExtensions() {
 		List<Class<? extends Extension>> list = new ArrayList<Class<? extends Extension>>();
+        list.add(MantisRuleRepository.class);
 		list.add(MantisMetrics.class);
 		list.add(MantisSensor.class);
 		list.add(MantisWidget.class);

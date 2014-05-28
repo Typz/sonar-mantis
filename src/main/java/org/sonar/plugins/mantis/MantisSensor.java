@@ -24,6 +24,7 @@ import java.math.BigInteger;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.rmi.RemoteException;
+import java.util.*;
 
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
@@ -33,7 +34,11 @@ import org.sonar.api.batch.SensorContext;
 import org.sonar.api.config.Settings;
 import org.sonar.api.measures.CountDistributionBuilder;
 import org.sonar.api.measures.Measure;
+import org.sonar.api.profiles.RulesProfile;
 import org.sonar.api.resources.Project;
+import org.sonar.api.rules.ActiveRule;
+import org.sonar.api.rules.Rule;
+import org.sonar.api.rules.Violation;
 import org.sonar.api.utils.SonarException;
 import org.sonar.plugins.mantis.soap.MantisSoapService;
 
@@ -53,10 +58,41 @@ public class MantisSensor implements Sensor {
   private String password;
   private String filterName;
   private Settings settings;
+  private RulesProfile profile;
 
-  public MantisSensor(Settings settings) {
+  private int oldAge = MantisRuleRepository.OLD_TICKET.getParam("age").getDefaultValueAsInteger();
+  private int unassignedAge = MantisRuleRepository.UNASSIGNED_TICKET.getParam("age").getDefaultValueAsInteger();
+  private int stalledAge = MantisRuleRepository.STALLED_TICKET.getParam("age").getDefaultValueAsInteger();
+  private Set<String> selfAssignedStates = new HashSet<String>();
+
+  public MantisSensor(Settings settings, RulesProfile profile) {
     this.settings = settings;
+    this.profile = profile;
+
+    List<ActiveRule> rules = profile.getActiveRulesByRepository(MantisRuleRepository.REPOSITORY_KEY);
+    for (ActiveRule r: rules) {
+      if (r.getRuleKey() == MantisRuleRepository.OLD_TICKET.getKey()) {
+        oldAge = Integer.parseInt(r.getParameter("age"));
+        LOG.info("old ticket age:" + oldAge);
+      }
+      else if (r.getRuleKey() == MantisRuleRepository.UNASSIGNED_TICKET.getKey()) {
+        unassignedAge = Integer.parseInt(r.getParameter("age"));
+        LOG.info("unassigned ticket age:" + unassignedAge);
+      }
+      else if (r.getRuleKey() == MantisRuleRepository.STALLED_TICKET.getKey()) {
+        stalledAge = Integer.parseInt(r.getParameter("age"));
+        LOG.info("stalled ticket age:" + stalledAge);
+      }
+      else if (r.getRuleKey() == MantisRuleRepository.SELF_ASSIGNED_TICKET.getKey()) {
+        for (String s: r.getParameter("states").split(",")) {
+          selfAssignedStates.add(s);
+        }
+        LOG.info("self assigned states:" + selfAssignedStates);
+      }
+    }
+
   }
+
 
   public String getServerUrl() {
     return serverUrl;
@@ -89,7 +125,7 @@ public class MantisSensor implements Sensor {
     try {
       MantisSoapService service = createMantisSoapService();
       service.connect(username, password, projectName);
-      analyze(context, service);
+      analyze(project, context, service);
       service.disconnect();
     } catch (RemoteException e) {
       throw new SonarException("Error accessing Mantis web service, please verify the parameters", e);
@@ -106,7 +142,12 @@ public class MantisSensor implements Sensor {
     return new MantisSoapService(url);
   }
 
-  private void analyze(SensorContext context, MantisSoapService service) throws RemoteException {
+  private long daysElapsed(Date from, Date to)
+  {
+    return (to.getTime() - from.getTime()) / (24*3600*1000);
+  }
+
+  private void analyze(Project project, SensorContext context, MantisSoapService service) throws RemoteException {
     FilterData[] filters = service.getFilters();
     FilterData filter = null;
     for (FilterData f : filters) {
@@ -128,11 +169,40 @@ public class MantisSensor implements Sensor {
     CountDistributionBuilder issuesByStatus = new CountDistributionBuilder(MantisMetrics.STATUS);
     CountDistributionBuilder issuesByDevelopers = new CountDistributionBuilder(MantisMetrics.DEVELOPERS);
 
+    Date date = project.getAnalysisDate();
+    if (date == null)
+      date = new Date();  //current time
+
     for (IssueData issue : issues) {
       issuesByPriority.add(new MantisProperty(issue.getPriority()));
       issuesByStatus.add(new MantisProperty(issue.getStatus()));
       issuesByDevelopers.add(issue.getHandler() != null ? issue.getHandler().getName() : "unassigned");
+
+      Rule rule = null;
+      if (daysElapsed(issue.getDate_submitted().getTime(), date) >= oldAge) {
+        rule = MantisRuleRepository.OLD_TICKET;
+      }
+      else if (issue.getHandler() == null &&
+          daysElapsed(issue.getDate_submitted().getTime(), date) >= unassignedAge) {
+        rule = MantisRuleRepository.UNASSIGNED_TICKET;
+      }
+      else if (daysElapsed(issue.getLast_updated().getTime(), date) >= stalledAge) {
+        rule = MantisRuleRepository.STALLED_TICKET;
+      }
+      else if ((selfAssignedStates.isEmpty() || selfAssignedStates.contains(issue.getStatus().getName())) &&
+          issue.getReporter() != null &&
+          issue.getHandler() != null  &&
+          issue.getReporter().getId() == issue.getHandler().getId()) {
+        rule = MantisRuleRepository.SELF_ASSIGNED_TICKET;
+      }
+
+      if (rule != null) {
+        LOG.info("Mantis #" + issue.getId() + ": " + rule.getName());
+        context.saveViolation(Violation.create(rule, project)
+            .setMessage("[#" + issue.getId() + "]" + issue.getSummary() + ": " + rule.getName()));
+      }
     }
+
     saveMeasures(context, service.getProjectId(), new Measure(MantisMetrics.ISSUES).setIntValue(issues.length));
     saveMeasures(context, service.getProjectId(), issuesByPriority.build().setValue((double) issues.length));
     saveMeasures(context, service.getProjectId(), issuesByStatus.build().setValue((double) issues.length));
