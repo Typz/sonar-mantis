@@ -85,6 +85,14 @@ public class MantisSoapService {
     return mantisConnectPortType.mc_filter_get(username, password, getProjectId());
   }
 
+  private IssueData[] getIssuesPage(FilterData filter, int page, int count) throws RemoteException {
+    return filter == null
+        ? mantisConnectPortType.mc_project_get_issues(username, password, getProjectId(),
+            BigInteger.valueOf(page), BigInteger.valueOf(count))
+        : mantisConnectPortType.mc_filter_get_issues(username, password, getProjectId(), filter.getId(),
+            BigInteger.valueOf(page), BigInteger.valueOf(count));
+  }
+
   public IssueData[] getIssues(FilterData filter) throws RemoteException {
     LOG.debug("Get issues via SOAP for {} : {}", getProjectId(), filter.getName());
     List<IssueData> issues = new ArrayList<IssueData>();
@@ -94,8 +102,7 @@ public class MantisSoapService {
     do {
       try {
         LOG.debug("Get issues from index {} to {}", ((page - 1) * 50), (page * 50) - 1);
-        result = mantisConnectPortType.mc_filter_get_issues(username, password, getProjectId(), filter.getId(), BigInteger.valueOf(page++),
-            BigInteger.valueOf(50));
+        result = getIssuesPage(filter, page++, 50);
         if (result.length != 0) {
           if (firstIssueInPage.equals(result[0].getId())) {
             result = new IssueData[0];
@@ -108,8 +115,7 @@ public class MantisSoapService {
         for (int i = ((page - 2) * 50); i < ((page - 1) * 50); i++) {
           LOG.info("Trying to get issue at index {}", i);
           try {
-            IssueData[] data = mantisConnectPortType.mc_filter_get_issues(username, password, getProjectId(), filter.getId(), BigInteger.valueOf(i + 1),
-                BigInteger.valueOf(1));
+            IssueData[] data = getIssuesPage(filter, i + 1, 1);
             if (data.length == 1) {
               issues.add(data[0]);
               LOG.info("Issue {} recovered.", data[0].getId());

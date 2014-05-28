@@ -148,20 +148,22 @@ public class MantisSensor implements Sensor {
   }
 
   private void analyze(Project project, SensorContext context, MantisSoapService service) throws RemoteException {
-    FilterData[] filters = service.getFilters();
     FilterData filter = null;
-    for (FilterData f : filters) {
-      if (getFilterName().equals(f.getName())) {
-        filter = f;
-      }
-    }
-
-    if (filter == null) {
-      LOG.debug("Unable to find filter '{}' in Mantis for projectId {}", filterName, service.getProjectId());
+    if (getFilterName() != null) {
+      FilterData[] filters = service.getFilters();
       for (FilterData f : filters) {
-        LOG.debug("   - {} : {}", f.getName(), f.getId());
+        if (getFilterName().equals(f.getName())) {
+          filter = f;
+        }
       }
-      throw new SonarException("Unable to find filter '" + filterName + "' in Mantis");
+
+      if (filter == null) {
+        LOG.debug("Unable to find filter '{}' in Mantis for projectId {}", filterName, service.getProjectId());
+        for (FilterData f : filters) {
+          LOG.debug("   - {} : {}", f.getName(), f.getId());
+        }
+        throw new SonarException("Unable to find filter '" + filterName + "' in Mantis");
+      }
     }
 
     IssueData[] issues = service.getIssues(filter);
@@ -218,7 +220,7 @@ public class MantisSensor implements Sensor {
   }
 
   protected boolean isMandatoryParametersNotEmpty() {
-    return StringUtils.isNotEmpty(serverUrl) && StringUtils.isNotEmpty(filterName) && StringUtils.isNotEmpty(projectName)
+    return StringUtils.isNotEmpty(serverUrl) && StringUtils.isNotEmpty(projectName)
       && StringUtils.isNotEmpty(username) && StringUtils.isNotEmpty(password);
   }
 
