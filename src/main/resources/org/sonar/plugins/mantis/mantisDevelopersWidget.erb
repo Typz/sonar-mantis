@@ -5,7 +5,7 @@
   <div class="yui-g">
     <div class="yui-u first">
       <div class="dashbox">
-        <p class="title">Mantis Issues</p>
+        <h3>Mantis Issues by developer</h3>
         <table>
           <% developers_measure.data.split(";").each do |developer_with_size|
             developer_with_size_array = developer_with_size.split("=") %>
@@ -28,7 +28,6 @@
       <div class="dashbox">
   		<%= piechart(developers_measure) -%>
       </div>
-      	
     </div>
   </div>
 <% end %>
